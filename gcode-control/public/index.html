@@ -1,0 +1,149 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DrawBot Control Panel</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: grid;
+            gap: 20px;
+        }
+        .control-panel {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        button {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .command-history {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 20px;
+        }
+        .manual-command {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        input {
+            padding: 8px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DrawBot Control Panel</h1>
+        
+        <div class="status disconnected" id="status">
+            Disconnected
+        </div>
+
+        <div>
+            <button id="connectBtn">Connect to Robot</button>
+            <button id="disconnectBtn">Disconnect</button>
+        </div>
+
+        <h2>Quick Commands</h2>
+        <div class="control-panel">
+            <button onclick="sendCommand('G1 Z1')">Pen Up</button>
+            <button onclick="sendCommand('G1 Z0')">Pen Down</button>
+            <button onclick="sendCommand('G1 X0 Y0')">Home</button>
+            
+            <button onclick="sendCommand('G1 X45 Y0')">X+45</button>
+            <button onclick="sendCommand('G1 X-45 Y0')">X-45</button>
+            <button onclick="sendCommand('G1 X0 Y90')">Y+90</button>
+            <button onclick="sendCommand('G1 X0 Y-90')">Y-90</button>
+        </div>
+
+        <div class="manual-command">
+            <input type="text" id="commandInput" placeholder="Enter G-code command">
+            <button onclick="sendManualCommand()">Send</button>
+        </div>
+
+        <h2>Command History</h2>
+        <div class="command-history" id="history"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const status = document.getElementById('status');
+        const history = document.getElementById('history');
+        const commandInput = document.getElementById('commandInput');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+
+        socket.on('connectionStatus', (connected) => {
+            status.textContent = connected ? 'Connected' : 'Disconnected';
+            status.className = 'status ' + (connected ? 'connected' : 'disconnected');
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+        });
+
+        socket.on('robot-response', (response) => {
+            addToHistory('Response: ' + response);
+        });
+
+        connectBtn.addEventListener('click', () => {
+            socket.emit('connect-to-robot');
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            socket.emit('disconnect-from-robot');
+        });
+
+        function sendCommand(command) {
+            socket.emit('send-command', command);
+            addToHistory('Sent: ' + command);
+        }
+
+        function sendManualCommand() {
+            const command = commandInput.value.trim();
+            if (command) {
+                sendCommand(command);
+                commandInput.value = '';
+            }
+        }
+
+        function addToHistory(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            history.appendChild(div);
+            history.scrollTop = history.scrollHeight;
+        }
+
+        // Allow sending command with Enter key
+        commandInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendManualCommand();
+            }
+        });
+    </script>
+</body>
+</html>

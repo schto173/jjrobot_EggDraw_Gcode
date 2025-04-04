@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DrawBot Image Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: grid;
+            gap: 20px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { 
+            background-color: #d4edda; 
+            color: #155724; 
+        }
+        .disconnected { 
+            background-color: #f8d7da; 
+            color: #721c24; 
+        }
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .canvas-wrapper {
+            width: 100%;
+            height: 400px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: white;
+        }
+        canvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s;
+        }
+        .control-panel {
+            display: grid;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 100%;
+        }
+        .position-display {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .debug-log {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DrawBot Image Processor</h1>
+        
+        <div class="status disconnected" id="status">
+            Disconnected
+        </div>
+
+        <div class="control-panel">
+            <button id="connectBtn">Connect to Robot</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+            <input type="file" id="imageInput" accept="image/*">
+            <button id="startDrawing" disabled>Start Drawing</button>
+            <button id="stopDrawing" disabled>Stop Drawing</button>
+        </div>
+
+        <div class="preview-container">
+            <div>
+                <h3>Original Image</h3>
+                <div class="canvas-wrapper">
+                    <canvas id="originalCanvas"></canvas>
+                </div>
+            </div>
+            <div>
+                <h3>Drawing Preview</h3>
+                <div class="canvas-wrapper">
+                    <canvas id="previewCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <h3>Drawing Progress</h3>
+            <div class="progress">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <p id="progressText">0%</p>
+        </div>
+
+        <div class="position-display">
+            <h3>Robot Position</h3>
+            <p id="position">X: 0, Y: 0, Pen: Up</p>
+        </div>
+
+        <div class="debug-log" id="debugLog">
+            <h3>Debug Log</h3>
+            <div id="debugContent"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let currentGcode = [];
+        
+        // DOM elements
+        const status = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const startDrawing = document.getElementById('startDrawing');
+        const stopDrawing = document.getElementById('stopDrawing');
+        const imageInput = document.getElementById('imageInput');
+        const originalCanvas = document.getElementById('originalCanvas');
+        const previewCanvas = document.getElementById('previewCanvas');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const positionDisplay = document.getElementById('position');
+        const debugContent = document.getElementById('debugContent');
+
+        function log(message) {
+            console.log(message);
+            const entry = document.createElement('div');
+            entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            debugContent.appendChild(entry);
+            debugContent.scrollTop = debugContent.scrollHeight;
+        }
+
+        // Socket events
+        socket.on('connectionStatus', (connected) => {
+            log(`Connection status: ${connected ? 'Connected' : 'Disconnected'}`);
+            status.textContent = connected ? 'Connected' : 'Disconnected';
+            status.className = 'status ' + (connected ? 'connected' : 'disconnected');
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            updateStartButton();
+        });
+
+        socket.on('position', (pos) => {
+            log(`Position update - X: ${pos.x.toFixed(2)}, Y: ${pos.y.toFixed(2)}, Pen: ${pos.z > 0 ? 'Up' : 'Down'}`);
+            positionDisplay.textContent = 
+                `X: ${pos.x.toFixed(2)}, Y: ${pos.y.toFixed(2)}, Pen: ${pos.z > 0 ? 'Up' : 'Down'}`;
+            updatePositionVisual(pos);
+        });
+
+        socket.on('robot-response', (response) => {
+            log(`Robot response: ${response}`);
+        });
+
+        
+
+        // Button events
+        connectBtn.addEventListener('click', () => {
+            log('Connecting to robot...');
+            socket.emit('connect-to-robot');
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            log('Disconnecting from robot...');
+            socket.emit('disconnect-from-robot');
+        });
+
+        stopDrawing.addEventListener('click', () => {
+            log('Stopping drawing...');
+            socket.emit('stop-drawing');
+            stopDrawing.disabled = true;
+        });
+
+        imageInput.addEventListener('change', handleImageUpload);
+        startDrawing.addEventListener('click', startDrawingProcess);
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            log(`Processing image: ${file.name} (${file.size} bytes)`);
+
+            // Display original image
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    log(`Original image dimensions: ${img.width}x${img.height}`);
+                    
+                    // Calculate scaling to fit in canvas wrapper
+                    const wrapper = originalCanvas.parentElement;
+                    const scale = Math.min(
+                        wrapper.clientWidth / img.width,
+                        wrapper.clientHeight / img.height
+                    );
+                    
+                    originalCanvas.width = img.width * scale;
+                    originalCanvas.height = img.height * scale;
+                    
+                    const ctx = originalCanvas.getContext('2d');
+                    ctx.scale(scale, scale);
+                    ctx.drawImage(img, 0, 0);
+                    
+                    log(`Canvas scaled to: ${originalCanvas.width}x${originalCanvas.height}`);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            // Upload and process
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            log('Uploading image for processing...');
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    log(`G-code generated successfully: ${data.gcode.length} commands`);
+                    currentGcode = data.gcode;
+                    updateStartButton();
+                    displayPreview(data.dimensions);
+                    progressBar.style.width = '0%';
+                    progressText.textContent = 'Ready to draw';
+                } else {
+                    log(`Error processing image: ${data.error}`);
+                    alert('Error processing image: ' + data.error);
+                }
+            })
+            .catch(error => {
+                log(`Upload error: ${error}`);
+                alert('Error uploading image');
+            });
+        }
+
+        function displayPreview(dimensions) {
+            log(`Creating preview with dimensions: ${dimensions.width}x${dimensions.height}`);
+            
+            const wrapper = previewCanvas.parentElement;
+            const scale = Math.min(
+                wrapper.clientWidth / dimensions.width,
+                wrapper.clientHeight / dimensions.height
+            );
+            
+            previewCanvas.width = dimensions.width * scale;
+            previewCanvas.height = dimensions.height * scale;
+            
+            const ctx = previewCanvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.clearRect(0, 0, dimensions.width, dimensions.height);
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 1;
+            
+            let penDown = false;
+            let lastX = 0, lastY = 0;
+            
+            currentGcode.forEach((cmd, index) => {
+                if (cmd.includes('Z')) {
+                    penDown = cmd.includes('Z0');
+                } else if (cmd.includes('X') || cmd.includes('Y')) {
+                    const x = parseFloat((/X([-\d.]+)/).exec(cmd)?.[1]) || lastX;
+                    const y = parseFloat((/Y([-\d.]+)/).exec(cmd)?.[1]) || lastY;
+                    
+                    if (penDown) {
+                        ctx.beginPath();
+                        ctx.moveTo(lastX, lastY);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                    }
+                    
+                    lastX = x;
+                    lastY = y;
+                }
+            });
+            
+            log('Preview rendering complete');
+        }
+
+        function startDrawingProcess() {
+            if (!currentGcode.length || !socket.connected) return;
+            
+            log('Starting drawing process...');
+            startDrawing.disabled = true;
+            stopDrawing.disabled = false;
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
+            
+            socket.emit('start-drawing', currentGcode);
+        }
+
+        function updateStartButton() {
+            startDrawing.disabled = !currentGcode.length || !socket.connected;
+        }
+
+        function updatePositionVisual(pos) {
+            const ctx = previewCanvas.getContext('2d');
+            // Save current drawing
+            const imageData = ctx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
+            
+            // Clear and redraw
+            ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            ctx.putImageData(imageData, 0, 0);
+            
+            // Draw current position
+            ctx.fillStyle = pos.z > 0 ? 'blue' : 'red';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    </script>
+</body>
+</html>
