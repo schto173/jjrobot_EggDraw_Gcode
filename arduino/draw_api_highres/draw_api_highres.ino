@@ -19,8 +19,8 @@
 #define LED_PIN 13
 
 // Servo Configuration
-#define SERVO_UP 30
-#define SERVO_DOWN 0
+#define SERVO_UP 10
+#define SERVO_DOWN 40
 
 // Motor Parameters
 #define Y_AXIS_STEPS_PER_UNIT 8.88889  // Steps per deg, 16x microstepping
@@ -192,13 +192,12 @@ void handleMovement(float x, float y, float z, int connId) {
   bool positionChanged = false;
 
   // Handle Z movement first (pen up/down)
-  if (z != 0) {
     if (z > 0) {
       penUp();
     } else {
       penDown();
     }
-  }
+
 
   // Calculate new positions
   long new_target_y = y * Y_AXIS_STEPS_PER_UNIT;

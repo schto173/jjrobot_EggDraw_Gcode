@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Egg Bot Controller</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #main-container {
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px; /* Adjust as needed */
+            align-items: flex-start;
+        }
+        #controls-panel {
+            flex: 1;
+            min-width: 300px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            order: 1; /* Keep controls first */
+        }
+        #preview-panel {
+            flex: 2;
+            min-width: 400px; /* Ensure preview has some minimum width */
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center canvas container */
+            order: 2; /* Preview after controls */
+            width: 100%; /* Take full width if wrapping */
+        }
+        h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+            width: 100%;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input[type="file"],
+        input[type="number"] {
+            margin-bottom: 15px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: calc(100% - 18px); /* Account for padding */
+            box-sizing: border-box; /* Include padding in width */
+        }
+        button {
+            padding: 10px 15px;
+            font-size: 14px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            margin-right: 10px;
+            margin-bottom: 10px; /* Spacing */
+        }
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* --- Canvas Preview Styling --- */
+        #canvas-scroll-container {
+             width: 100%; /* Take full width of the preview panel */
+             /* max-width: 720px; /* Optional: Limit max visible width */
+             height: 250px; /* Set the FIXED VISIBLE height */
+             overflow-x: auto;  /* Enable horizontal scrolling */
+             overflow-y: hidden; /* Disable vertical scrolling */
+             margin-bottom: 15px;
+             border: 1px solid #d0d0d0;
+             background-color: #f8f9fa;
+             position: relative; /* Needed for potential future overlays */
+        }
+
+        #preview-canvas {
+            display: block; /* Important to prevent extra space */
+            /* Width and height will be set dynamically by JS */
+            background-color: #f8f9fa; /* Ensure canvas bg matches container */
+        }
+        /* --- End Canvas Preview Styling --- */
+
+        #gcode-display {
+            margin-top: 20px;
+            width: 100%;
+        }
+        #gcode-output {
+            white-space: pre;
+            background-color: #f8f9fa;
+            border: 1px solid #d0d0d0;
+            padding: 10px;
+            max-height: 200px;
+            overflow: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            border-radius: 4px;
+            box-sizing: border-box;
+            width: 100%;
+        }
+        #status-indicator {
+            margin-top: 15px;
+            font-weight: bold;
+            display: inline-block; /* Align with buttons */
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        .status-connected { color: #28a745; }
+        .status-disconnected { color: #dc3545; }
+        #progress-bar-container {
+            width: 100%;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 10px;
+            margin-top: 10px;
+            display: none; /* Hidden initially */
+        }
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.1s linear;
+        }
+        #status-messages {
+             margin-top: 10px;
+             font-size: 14px;
+             color: #555;
+             min-height: 1.2em; /* Prevent layout shift */
+        }
+        hr {
+            border: none;
+            border-top: 1px solid #eee;
+            margin: 15px 0;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="main-container">
+
+    <div id="controls-panel">
+        <h2>Controls</h2>
+        <div id="connection-status">
+            <span id="status-indicator" class="status-disconnected">Disconnected</span>
+            <button id="connect-btn">Connect</button>
+            <button id="disconnect-btn" disabled>Disconnect</button>
+        </div>
+        <hr>
+        <form id="upload-form" enctype="multipart/form-data">
+            <label for="image-file">Upload Image:</label>
+            <input type="file" id="image-file" name="image" accept=".png, .jpg, .jpeg" required />
+
+            <label for="scale">Scale (%):</label>
+            <input type="number" id="scale" name="scale" min="20" max="100" value="100" required />
+
+            <button type="submit" id="upload-btn">Generate Preview</button>
+        </form>
+         <hr>
+        <button id="start-print-btn" disabled>Start Printing</button>
+        <button id="stop-print-btn" disabled>Stop Printing</button>
+        <button id="clear-btn" disabled>Clear</button>
+
+        <div id="progress-bar-container">
+            <div id="progress-bar"></div>
+        </div>
+         <div id="status-messages">Ready</div>
+
+    </div>
+
+    <div id="preview-panel">
+        <h2>Preview</h2>
+        <!-- Container for scrolling -->
+        <div id="canvas-scroll-container">
+             <canvas id="preview-canvas"></canvas> <!-- No fixed width/height -->
+        </div>
+        <div id="gcode-display" style="display: none;">
+            <h2>G-code</h2>
+            <pre id="gcode-output"></pre>
+        </div>
+    </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script> <!-- Ensure this path is correct for your setup -->
+<script>
+    const socket = io();
+
+    // --- DOM Elements ---
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const statusIndicator = document.getElementById('status-indicator');
+    const uploadForm = document.getElementById('upload-form');
+    const uploadBtn = document.getElementById('upload-btn');
+    const imageFile = document.getElementById('image-file');
+    const scaleInput = document.getElementById('scale');
+    const startPrintBtn = document.getElementById('start-print-btn');
+    const stopPrintBtn = document.getElementById('stop-print-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const canvasScrollContainer = document.getElementById('canvas-scroll-container'); // Scroll container
+    const canvas = document.getElementById('preview-canvas');
+    const ctx = canvas.getContext('2d');
+    const gcodeDisplay = document.getElementById('gcode-display');
+    const gcodeOutput = document.getElementById('gcode-output');
+    const progressBarContainer = document.getElementById('progress-bar-container');
+    const progressBar = document.getElementById('progress-bar');
+    const statusMessages = document.getElementById('status-messages');
+
+
+    // --- State Variables ---
+    let currentGcode = [];
+    let isRobotConnected = false;
+    let isPrinting = false;
+    let animationFrameId = null;
+    let previewTransform = { scale: 1, offsetX: 0, offsetY: 0 }; // Transform state
+    let gcodeBounds = { minX: 0, maxX: 360, minY: 0, maxY: 90 }; // Store bounds for potential reuse
+
+    // --- Constants ---
+    const DRAW_COLOR = '#0056b3'; // Blue for drawing
+    const TRAVEL_COLOR = '#cccccc'; // Light grey for travel
+    const DRAW_LINE_WIDTH = 1.5;
+    const TRAVEL_LINE_WIDTH = 1;
+    const PREVIEW_MARGIN = 10; // Reduced margin for zoom-to-height
+
+    // --- Canvas Drawing Functions ---
+
+    function calculatePreviewTransform(gcodeLines) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let hasPoints = false;
+
+        gcodeLines.forEach(line => {
+            const match = line.match(/X([\d.-]+)\s*Y([\d.-]+)/);
+            if (match) {
+                const x = parseFloat(match[1]);
+                const y = parseFloat(match[2]);
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                hasPoints = true;
+            }
+        });
+
+        // Get VISIBLE canvas dimensions from the scroll container
+        const visibleCanvasWidth = canvasScrollContainer.clientWidth;
+        const visibleCanvasHeight = canvasScrollContainer.clientHeight;
+
+        if (!hasPoints) {
+             minX = 0; maxX = 360; minY = 0; maxY = 90; // Default bounds
+        }
+        // Ensure min/max are valid numbers and represent a non-zero area
+        if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) {
+             minX = 0; maxX = 360; minY = 0; maxY = 90; // Fallback
+        }
+        if (minX === maxX) { maxX = minX + 1; }
+        if (minY === maxY) { maxY = minY + 1; }
+
+        gcodeBounds = { minX, maxX, minY, maxY }; // Store calculated bounds
+
+        const dataWidth = maxX - minX;
+        const dataHeight = maxY - minY;
+
+        // Calculate scale based ONLY on HEIGHT
+        const canvasDrawHeight = visibleCanvasHeight - 2 * PREVIEW_MARGIN;
+        const scale = (dataHeight > 0) ? canvasDrawHeight / dataHeight : 1; // Scale to fit height
+
+        // Calculate the REQUIRED width at this scale
+        const requiredContentWidth = dataWidth * scale;
+        const requiredCanvasWidth = requiredContentWidth + 2 * PREVIEW_MARGIN;
+
+        // Set the ACTUAL canvas element dimensions
+        canvas.width = Math.max(visibleCanvasWidth, requiredCanvasWidth); // Canvas can be wider than container
+        canvas.height = visibleCanvasHeight; // Canvas height matches container
+
+        // Calculate offsets
+        const offsetX = PREVIEW_MARGIN - (minX * scale); // Align left edge with margin
+        const scaledContentHeight = dataHeight * scale;
+        // Center vertically: margin + (available_space - content_height)/2 + offset_for_max_Y
+        const offsetY = PREVIEW_MARGIN + (canvasDrawHeight - scaledContentHeight) / 2 + (maxY * scale);
+
+        previewTransform = { scale, offsetX, offsetY };
+        console.log("Calculated Transform (Zoom to Height):", previewTransform, { ...gcodeBounds, requiredCanvasWidth, visibleCanvasHeight });
+
+        // Reset scroll position when new G-code is loaded
+        canvasScrollContainer.scrollLeft = 0;
+    }
+
+    function transformPoint(x, y) {
+        const canvasX = x * previewTransform.scale + previewTransform.offsetX;
+        // Invert Y axis: calculated_offset_Y - scaled_Y_value
+        const canvasY = previewTransform.offsetY - (y * previewTransform.scale);
+        return { x: canvasX, y: canvasY };
+    }
+
+
+    function drawPreviewFrame(index) {
+        // Clear the potentially wider canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = DRAW_LINE_WIDTH;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        let currentX = 0, currentY = 0; // Assume starting at G-code origin (0,0)
+        let isPenDown = false;
+        // Get initial canvas position by transforming the G-code origin
+        let lastCanvasPos = transformPoint(currentX, currentY);
+
+        for (let i = 0; i <= index && i < currentGcode.length; i++) {
+            const line = currentGcode[i];
+            let targetX = currentX;
+            let targetY = currentY;
+            let moved = false;
+
+            // Simple G-code parsing (adjust if your G-code format differs)
+            const parts = line.trim().split(/\s+/); // Split by whitespace
+            parts.forEach(part => {
+                if (!part) return; // Skip empty parts
+                const code = part.charAt(0).toUpperCase();
+                const value = parseFloat(part.substring(1));
+
+                if (isNaN(value)) return; // Skip if value is not a number
+
+                switch (code) {
+                    case 'G': // Could check for G0/G1 if needed, but Z usually controls plotting
+                        break;
+                    case 'X':
+                        targetX = value;
+                        moved = true;
+                        break;
+                    case 'Y':
+                        targetY = value;
+                        moved = true;
+                        break;
+                    case 'Z':
+                        // Assuming Z0 is down (draw), Z1 (or anything else) is up (travel)
+                        isPenDown = (value === 0);
+                        break;
+                }
+            });
+
+            if (moved) {
+                const targetCanvasPos = transformPoint(targetX, targetY);
+
+                ctx.beginPath();
+                ctx.moveTo(lastCanvasPos.x, lastCanvasPos.y);
+
+                if (isPenDown) {
+                    ctx.strokeStyle = DRAW_COLOR;
+                    ctx.lineWidth = DRAW_LINE_WIDTH;
+                    ctx.setLineDash([]); // Solid line
+                } else {
+                    ctx.strokeStyle = TRAVEL_COLOR;
+                    ctx.lineWidth = TRAVEL_LINE_WIDTH;
+                    ctx.setLineDash([3, 3]); // Dashed line for travel
+                }
+
+                ctx.lineTo(targetCanvasPos.x, targetCanvasPos.y);
+                ctx.stroke();
+
+                // Update current G-code position and last canvas position
+                currentX = targetX;
+                currentY = targetY;
+                lastCanvasPos = targetCanvasPos;
+            } else if (parts.some(p => p.toUpperCase().startsWith('Z'))) {
+                 // If only Z changed, update pen state but don't redraw line segment
+                 // The next move command will use the correct pen state
+            }
+        }
+         ctx.setLineDash([]); // Ensure line dash is reset after loop
+    }
+
+    function animatePreview(startIndex = 0) {
+        // Ensure canvas dimensions are set based on the *current* transform/bounds
+        // This is important if the window was resized between load and animation start
+        if (currentGcode.length > 0) {
+             const visibleCanvasWidth = canvasScrollContainer.clientWidth;
+             const requiredCanvasWidth = (gcodeBounds.maxX - gcodeBounds.minX) * previewTransform.scale + 2 * PREVIEW_MARGIN;
+             canvas.width = Math.max(visibleCanvasWidth, requiredCanvasWidth);
+             canvas.height = canvasScrollContainer.clientHeight;
+        } else {
+            // Default size if no gcode
+            canvas.width = canvasScrollContainer.clientWidth;
+            canvas.height = canvasScrollContainer.clientHeight;
+        }
+
+        let currentIndex = startIndex;
+        const totalCommands = currentGcode.length;
+
+        function animationStep() {
+            // Check if animation should continue (e.g., not cleared)
+            if (!animationFrameId) return;
+
+            if (currentIndex >= totalCommands) {
+                console.log("Preview animation finished.");
+                drawPreviewFrame(totalCommands - 1); // Draw final complete frame
+                animationFrameId = null; // Mark as finished
+                return;
+            }
+
+            drawPreviewFrame(currentIndex);
+            currentIndex++;
+            // Request next frame only if still active
+            if (animationFrameId) {
+                 animationFrameId = requestAnimationFrame(animationStep);
+            }
+        }
+
+        // Stop any previous animation before starting a new one
+        stopPreviewAnimation();
+        // Set the ID to indicate animation is active *before* the first frame request
+        animationFrameId = true; // Use a truthy value initially
+        animationFrameId = requestAnimationFrame(animationStep); // Start the loop
+    }
+
+    function stopPreviewAnimation() {
+         if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null; // Mark as stopped
+            console.log("Preview animation stopped.");
+         }
+    }
+
+    // --- UI Update Functions ---
+    function updateConnectionStatus(isConnected) {
+        isRobotConnected = isConnected;
+        if (isConnected) {
+            statusIndicator.textContent = 'Connected';
+            statusIndicator.className = 'status-connected';
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            startPrintBtn.disabled = currentGcode.length === 0 || isPrinting; // Enable print if G-code loaded
+            stopPrintBtn.disabled = !isPrinting;
+        } else {
+            statusIndicator.textContent = 'Disconnected';
+            statusIndicator.className = 'status-disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            startPrintBtn.disabled = true; // Disable print if disconnected
+            stopPrintBtn.disabled = true;
+            isPrinting = false; // Reset printing state on disconnect
+            progressBarContainer.style.display = 'none';
+            updateStatusMessage('Robot disconnected.');
+        }
+    }
+
+     function updatePrintingStatus(isNowPrinting) {
+        isPrinting = isNowPrinting;
+        startPrintBtn.disabled = isPrinting || !isRobotConnected || currentGcode.length === 0;
+        stopPrintBtn.disabled = !isPrinting || !isRobotConnected;
+        uploadBtn.disabled = isPrinting;
+        imageFile.disabled = isPrinting;
+        scaleInput.disabled = isPrinting;
+        clearBtn.disabled = isPrinting;
+        connectBtn.disabled = isPrinting || isRobotConnected; // Disable connect if printing or already connected
+        disconnectBtn.disabled = isPrinting || !isRobotConnected; // Disable disconnect if printing or not connected
+
+        progressBarContainer.style.display = isPrinting ? 'block' : 'none';
+        if (!isPrinting) {
+             progressBar.style.width = '0%'; // Reset progress bar when stopped/finished
+        }
+     }
+
+     function updateStatusMessage(message) {
+         statusMessages.textContent = message;
+     }
+
+     function updateProgressBar(percent) {
+         progressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+     }
+
+
+    // --- Event Listeners ---
+    connectBtn.addEventListener('click', () => {
+        updateStatusMessage('Connecting...');
+        socket.emit('connect-to-robot');
+    });
+
+    disconnectBtn.addEventListener('click', () => {
+        socket.emit('disconnect-from-robot');
+        // Status updated via 'connectionStatus' event
+    });
+
+    uploadForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!imageFile.files || imageFile.files.length === 0) {
+            alert('Please select an image file.');
+            return;
+        }
+        if (isPrinting) {
+            alert('Cannot generate preview while printing is in progress.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('image', imageFile.files[0]);
+        formData.append('scale', scaleInput.value);
+        formData.append('mode', 'vector'); // Assuming vector mode is desired
+
+        updateStatusMessage('Generating G-code...');
+        uploadBtn.disabled = true;
+        clearBtn.disabled = true;
+        stopPreviewAnimation(); // Stop previous animation
+
+        fetch('/upload', {
+            method: 'POST',
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.gcode && Array.isArray(data.gcode)) {
+                currentGcode = data.gcode;
+                gcodeOutput.textContent = currentGcode.join('\n');
+                gcodeDisplay.style.display = 'block';
+
+                // Calculate transform and set canvas size FIRST
+                calculatePreviewTransform(currentGcode);
+
+                // Then start the animation
+                animatePreview();
+
+                clearBtn.disabled = false;
+                startPrintBtn.disabled = !isRobotConnected; // Enable print if connected
+                updateStatusMessage(`Preview generated (${currentGcode.length} commands).`);
+
+            } else {
+                alert('Error generating G-code: ' + (data.error || 'Invalid response from server'));
+                updateStatusMessage('G-code generation failed.');
+                currentGcode = [];
+                startPrintBtn.disabled = true;
+                clearBtn.disabled = true;
+                 // Reset canvas on error
+                 canvas.width = canvasScrollContainer.clientWidth;
+                 canvas.height = canvasScrollContainer.clientHeight;
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        })
+        .catch(err => {
+            console.error('Upload fetch failed:', err);
+            alert('Upload request failed. Check server connection and console.');
+            updateStatusMessage('Upload failed.');
+            currentGcode = [];
+            startPrintBtn.disabled = true;
+            clearBtn.disabled = true;
+        })
+        .finally(() => {
+             uploadBtn.disabled = false; // Re-enable upload button
+             // Keep clear button disabled if no gcode loaded
+             clearBtn.disabled = currentGcode.length === 0;
+        });
+    });
+
+    startPrintBtn.addEventListener('click', () => {
+        if (isRobotConnected && currentGcode.length > 0 && !isPrinting) {
+            updateStatusMessage('Starting print...');
+            socket.emit('start-drawing', currentGcode);
+            updatePrintingStatus(true);
+        } else if (!isRobotConnected) {
+             alert('Robot not connected.');
+        } else if (currentGcode.length === 0) {
+             alert('No G-code loaded to print.');
+        }
+    });
+
+     stopPrintBtn.addEventListener('click', () => {
+         if (isPrinting) {
+             updateStatusMessage('Stopping print...');
+             socket.emit('stop-drawing');
+             // UI status update will come from 'drawing-stopped' event
+         }
+     });
+
+
+    clearBtn.addEventListener('click', () => {
+        if (isPrinting) {
+            alert('Cannot clear while printing.');
+            return;
+        }
+        stopPreviewAnimation(); // Stop animation if running
+        currentGcode = [];
+        gcodeOutput.textContent = '';
+        gcodeDisplay.style.display = 'none';
+        startPrintBtn.disabled = true;
+        clearBtn.disabled = true;
+        updateStatusMessage('Cleared.');
+        updateProgressBar(0);
+        progressBarContainer.style.display = 'none';
+        imageFile.value = ''; // Clear file input
+
+        // Reset canvas size to default visible size and clear it
+        canvas.width = canvasScrollContainer.clientWidth;
+        canvas.height = canvasScrollContainer.clientHeight;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvasScrollContainer.scrollLeft = 0; // Reset scroll position
+    });
+
+    // --- Socket.IO Event Handlers ---
+    socket.on('connect', () => {
+        console.log('Socket connected to server');
+        updateStatusMessage('Connected to server. Ready to connect to robot.');
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Socket disconnected from server');
+        updateConnectionStatus(false); // Ensure UI reflects disconnect
+        updatePrintingStatus(false);
+        updateStatusMessage('Disconnected from server.');
+    });
+
+    socket.on('connectionStatus', (isConnected) => {
+        console.log('Robot connection status update:', isConnected);
+        updateConnectionStatus(isConnected);
+        // Status message is set within updateConnectionStatus
+    });
+
+    socket.on('drawing-complete', () => {
+        updateStatusMessage('Drawing complete.');
+        updatePrintingStatus(false);
+        updateProgressBar(100); // Show 100% on complete
+    });
+
+     socket.on('drawing-stopped', () => {
+        updateStatusMessage('Drawing stopped.');
+        updatePrintingStatus(false);
+        // Don't reset progress bar here, let user see where it stopped
+     });
+
+    socket.on('progress', (data) => {
+        // data = { current: ..., total: ..., percent: ... }
+        if (data && typeof data.current === 'number' && typeof data.total === 'number' && typeof data.percent === 'number') {
+            updateStatusMessage(`Printing: ${data.current}/${data.total} (${data.percent.toFixed(1)}%)`);
+            updateProgressBar(data.percent);
+        } else {
+            console.warn("Received malformed progress data:", data);
+        }
+    });
+
+     socket.on('status', (message) => {
+         // General status messages from the server (e.g., batch processing)
+         updateStatusMessage(message);
+         console.log('Server Status:', message);
+     });
+
+    socket.on('error', (errorMessage) => {
+        console.error('Received Error:', errorMessage);
+        alert('Error: ' + errorMessage);
+        updateStatusMessage(`Error: ${errorMessage}`);
+        // Stop printing if an error occurs during printing
+        if (isPrinting) {
+             updatePrintingStatus(false);
+        }
+    });
+
+    socket.on('robot-response', (response) => {
+        // Optional: Display raw robot responses if needed for debugging
+         console.log('Robot Raw:', response);
+         // Avoid flooding status message with raw responses unless needed
+         // updateStatusMessage(`Robot: ${response}`);
+    });
+
+    // --- Initial State Setup ---
+    function initializeApp() {
+        // Set initial canvas size based on container's current dimensions
+        canvas.width = canvasScrollContainer.clientWidth;
+        canvas.height = canvasScrollContainer.clientHeight;
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear initial canvas
+
+        updateConnectionStatus(false); // Assume disconnected initially
+        updatePrintingStatus(false);
+        updateStatusMessage('Ready'); // Initial status
+    }
+
+    // Run initialization once the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', initializeApp);
+
+</script>
+
+</body>
+</html>
